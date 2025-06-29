@@ -7,6 +7,7 @@ Real-time WebSocket-based arbitrage detection and execution
 import asyncio
 import json
 import logging
+import logging.handlers
 import time
 from collections import defaultdict, deque
 from decimal import Decimal, ROUND_DOWN
@@ -411,8 +412,12 @@ class ArbitrageBot:
             logger.info("Starting Triangular Arbitrage Bot...")
             
             # Initialize Binance client
-            self.client = await AsyncClient.create(config.API_KEY, config.API_SECRET)
-            logger.info("Binance client initialized")
+            self.client = await AsyncClient.create(
+                config.API_KEY, 
+                config.API_SECRET,
+                testnet=config.TESTNET
+            )
+            logger.info(f"Binance client initialized (testnet: {config.TESTNET})")
             
             # Load exchange information
             await self.data_store.load_exchange_info(self.client)
@@ -449,7 +454,11 @@ class ArbitrageBot:
             
             # Create WebSocket stream URL
             streams = [f"{symbol}@bookTicker" for symbol in symbols_needed]
-            stream_url = f"wss://stream.binance.com:9443/ws/{'/'.join(streams)}"
+            if config.TESTNET:
+                base_url = "wss://testnet.binance.vision/ws"
+            else:
+                base_url = "wss://stream.binance.com:9443/ws"
+            stream_url = f"{base_url}/{'/'.join(streams)}"
             
             logger.info(f"Connecting to WebSocket with {len(streams)} streams")
             

@@ -3,6 +3,7 @@ import os
 # Binance API Configuration - NEVER hardcode these in production
 API_KEY = os.getenv("BINANCE_API_KEY")
 API_SECRET = os.getenv("BINANCE_API_SECRET")
+TESTNET = os.getenv("BINANCE_TESTNET", "false").lower() == "true"
 
 if not API_KEY or not API_SECRET:
     raise ValueError("BINANCE_API_KEY and BINANCE_API_SECRET environment variables must be set")
