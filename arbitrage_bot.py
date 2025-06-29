@@ -16,6 +16,7 @@ import websockets
 from binance.client import AsyncClient
 from binance.exceptions import BinanceAPIException
 import config
+from telegram_notifier import TelegramNotifier
 
 # Configure logging
 logging.basicConfig(
@@ -405,11 +406,15 @@ class ArbitrageBot:
         self.trade_executor = None
         self.websocket = None
         self.running = False
+        self.telegram_notifier = TelegramNotifier()
     
     async def start(self):
         """Start the arbitrage bot"""
         try:
             logger.info("Starting Triangular Arbitrage Bot...")
+            
+            # Send startup notification
+            await self.telegram_notifier.send_bot_status("starting", f"Testnet: {config.TESTNET}")
             
             # Initialize Binance client
             self.client = await AsyncClient.create(
@@ -431,8 +436,12 @@ class ArbitrageBot:
             # Start WebSocket connection
             await self._start_websocket()
             
+            # Send running notification
+            await self.telegram_notifier.send_bot_status("running", "All systems operational")
+            
         except Exception as e:
             logger.error(f"Failed to start bot: {e}")
+            await self.telegram_notifier.send_error_alert("Bot Startup", str(e), "critical")
             await self.stop()
             raise
     
@@ -468,6 +477,7 @@ class ArbitrageBot:
                     async with websockets.connect(stream_url) as websocket:
                         self.websocket = websocket
                         logger.info("WebSocket connected")
+                        await self.telegram_notifier.send_bot_status("connected", "WebSocket stream active")
                         
                         async for message in websocket:
                             if not self.running:
@@ -497,10 +507,12 @@ class ArbitrageBot:
                 except websockets.exceptions.ConnectionClosed:
                     if self.running:
                         logger.warning("WebSocket connection closed, reconnecting...")
+                        await self.telegram_notifier.send_bot_status("reconnecting", "WebSocket disconnected")
                         await asyncio.sleep(config.WEBSOCKET_RECONNECT_DELAY)
                 except Exception as e:
                     if self.running:
                         logger.error(f"WebSocket error: {e}, reconnecting...")
+                        await self.telegram_notifier.send_error_alert("WebSocket", str(e), "medium")
                         await asyncio.sleep(config.WEBSOCKET_RECONNECT_DELAY)
                         
         except Exception as e:
@@ -518,7 +530,7 @@ class ArbitrageBot:
                     logger.info(f"Arbitrage opportunity found: {triangle} - "
                                f"{opportunity['profit_percentage']:.4f}% profit")
                     
-                    # Execute the trade asynchronously
+                    # Send opportunity notification and execute trade asynchronously
                     asyncio.create_task(self._execute_opportunity(triangle, opportunity))
                     
         except Exception as e:
@@ -573,6 +585,9 @@ class ArbitrageBot:
     async def _execute_opportunity(self, triangle: List[str], opportunity: Dict):
         """Execute an arbitrage opportunity"""
         try:
+            # Send opportunity notification
+            await self.telegram_notifier.send_opportunity_alert(triangle, opportunity["profit_percentage"])
+            
             # Calculate trade amount based on configuration
             trade_amount = min(
                 config.TRADE_AMOUNT_USDT,
@@ -581,6 +596,9 @@ class ArbitrageBot:
             
             # Execute the triangular arbitrage
             result = await self.trade_executor.execute_triangle(triangle, trade_amount)
+            
+            # Send execution notification
+            await self.telegram_notifier.send_trade_execution(result)
             
             if result["success"]:
                 logger.info(f"Successfully executed arbitrage: {result}")
@@ -595,12 +613,17 @@ class ArbitrageBot:
         logger.info("Stopping Triangular Arbitrage Bot...")
         self.running = False
         
+        # Send stopping notification
+        await self.telegram_notifier.send_bot_status("stopping", "Shutting down all connections")
+        
         if self.websocket:
             await self.websocket.close()
         
         if self.client:
             await self.client.close_connection()
         
+        # Send stopped notification
+        await self.telegram_notifier.send_bot_status("stopped", "Bot shutdown complete")
         logger.info("Bot stopped")
 
 async def main():

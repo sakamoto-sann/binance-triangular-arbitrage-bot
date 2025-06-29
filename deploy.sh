@@ -93,9 +93,10 @@ export BINANCE_API_KEY="your_binance_api_key_here"
 export BINANCE_API_SECRET="your_binance_api_secret_here"
 export BINANCE_TESTNET="true"  # Set to false for live trading
 
-# Optional: Telegram notifications (if implemented)
-# export TELEGRAM_BOT_TOKEN="your_telegram_bot_token"
-# export TELEGRAM_CHAT_ID="your_telegram_chat_id"
+# Telegram Notifications Configuration
+export TELEGRAM_ENABLED="false"
+export TELEGRAM_BOT_TOKEN=""
+export TELEGRAM_CHAT_IDS=""
 EOF
     chmod 600 "$ENV_FILE"
     

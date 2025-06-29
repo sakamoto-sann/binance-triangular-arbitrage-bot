@@ -49,3 +49,17 @@ QUANTITY_PRECISION = 8  # Decimal places for quantity calculations
 # Performance Tuning
 OPPORTUNITY_SCAN_INTERVAL = 0.1  # Seconds between opportunity scans
 MIN_LIQUIDITY_THRESHOLD = 1000  # Minimum USD value in order book
+
+# Telegram Configuration
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_IDS = [id.strip() for id in os.getenv("TELEGRAM_CHAT_IDS", "").split(",") if id.strip()]
+TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "false").lower() == "true" and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_IDS
+
+# Notification Rate Limits
+NOTIFICATION_SETTINGS = {
+    "trade_execution": {"enabled": True, "rate_limit_seconds": 1, "max_per_hour": 30},
+    "opportunity": {"enabled": True, "rate_limit_seconds": 10, "max_per_hour": 20},
+    "error": {"enabled": True, "rate_limit_seconds": 5, "max_per_hour": 15},
+    "daily_summary": {"enabled": True, "rate_limit_seconds": 0, "max_per_hour": 1},
+    "status": {"enabled": True, "rate_limit_seconds": 30, "max_per_hour": 10}
+}
