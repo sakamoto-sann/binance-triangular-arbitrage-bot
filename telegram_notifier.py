@@ -265,9 +265,12 @@ class TelegramNotifier:
         
         for chat_id in self.chat_ids:
             try:
+                # Sanitize ALL messages before sending (extra security layer)
+                safe_message = self._sanitize_error_message(message)
+                
                 await self.bot.send_message(
                     chat_id=chat_id,
-                    text=message,
+                    text=safe_message,
                     parse_mode=ParseMode.MARKDOWN,
                     disable_web_page_preview=True
                 )
@@ -306,18 +309,41 @@ class TelegramNotifier:
         # Remove potential API keys, secrets, and sensitive patterns
         import re
         
-        # Common patterns to sanitize
+        # Enhanced patterns to sanitize - covers more cases
         patterns = [
+            # API Keys and Secrets
             (r'[A-Za-z0-9]{64}', '[API_KEY_HIDDEN]'),  # 64-char API keys
-            (r'[A-Za-z0-9+/]{40,}', '[SECRET_HIDDEN]'),  # Base64-like secrets
-            (r'token[=:]\s*[A-Za-z0-9_-]+', 'token=[HIDDEN]'),  # Tokens
-            (r'key[=:]\s*[A-Za-z0-9_-]+', 'key=[HIDDEN]'),  # Keys
-            (r'password[=:]\s*\S+', 'password=[HIDDEN]'),  # Passwords
+            (r'[A-Za-z0-9+/]{40,}={0,2}', '[SECRET_HIDDEN]'),  # Base64-like secrets
+            (r'sk-[A-Za-z0-9]{20,}', '[SECRET_KEY_HIDDEN]'),  # OpenAI-style keys
+            
+            # Various authentication patterns
+            (r'(?i)(token|key|secret|password|auth)[=:\s]*[A-Za-z0-9_+-]{8,}', r'\1=[HIDDEN]'),
+            (r'(?i)(bearer|basic)\s+[A-Za-z0-9+/=_-]{8,}', r'\1 [HIDDEN]'),
+            
+            # Binance-specific patterns
+            (r'(?i)(binance[_-]?api[_-]?key)[=:\s]*[A-Za-z0-9]{10,}', r'\1=[HIDDEN]'),
+            (r'(?i)(binance[_-]?secret)[=:\s]*[A-Za-z0-9]{10,}', r'\1=[HIDDEN]'),
+            
+            # General sensitive data patterns
+            (r'(?i)(client[_-]?id)[=:\s]*[A-Za-z0-9_-]{8,}', r'\1=[HIDDEN]'),
+            (r'(?i)(access[_-]?token)[=:\s]*[A-Za-z0-9_.-]{8,}', r'\1=[HIDDEN]'),
+            
+            # Remove full HTTP authorization headers
+            (r'(?i)authorization:\s*[^\s,]+', 'authorization: [HIDDEN]'),
+            
+            # Remove JSON with sensitive fields
+            (r'(?i)"(api_?key|secret|token|password)":\s*"[^"]{8,}"', r'"\1": "[HIDDEN]"'),
+            
+            # Remove query parameters with sensitive data
+            (r'(?i)[?&](key|token|secret|auth)[=][A-Za-z0-9_+-]{8,}', r'&\1=[HIDDEN]'),
         ]
         
         sanitized = str(message)
         for pattern, replacement in patterns:
             sanitized = re.sub(pattern, replacement, sanitized, flags=re.IGNORECASE)
+        
+        # Remove any remaining long alphanumeric strings that might be sensitive
+        sanitized = re.sub(r'\b[A-Za-z0-9+/]{32,}\b', '[SENSITIVE_DATA_HIDDEN]', sanitized)
         
         # Truncate very long messages
         if len(sanitized) > 300:

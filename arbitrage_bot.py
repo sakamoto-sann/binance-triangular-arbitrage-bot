@@ -407,6 +407,9 @@ class ArbitrageBot:
         self.websocket = None
         self.running = False
         self.telegram_notifier = TelegramNotifier()
+        self.trade_semaphore = asyncio.Semaphore(1)  # Only one trade at a time
+        self.reconnect_count = 0
+        self.max_reconnect_attempts = 10
     
     async def start(self):
         """Start the arbitrage bot"""
@@ -476,6 +479,7 @@ class ArbitrageBot:
                 try:
                     async with websockets.connect(stream_url) as websocket:
                         self.websocket = websocket
+                        self.reconnect_count = 0  # Reset on successful connection
                         logger.info("WebSocket connected")
                         await self.telegram_notifier.send_bot_status("connected", "WebSocket stream active")
                         
@@ -506,14 +510,32 @@ class ArbitrageBot:
                 
                 except websockets.exceptions.ConnectionClosed:
                     if self.running:
-                        logger.warning("WebSocket connection closed, reconnecting...")
-                        await self.telegram_notifier.send_bot_status("reconnecting", "WebSocket disconnected")
-                        await asyncio.sleep(config.WEBSOCKET_RECONNECT_DELAY)
+                        self.reconnect_count += 1
+                        if self.reconnect_count > self.max_reconnect_attempts:
+                            logger.error("Max reconnection attempts exceeded, stopping bot")
+                            await self.telegram_notifier.send_error_alert("WebSocket", "Max reconnections exceeded", "high")
+                            self.running = False
+                            break
+                        
+                        # Exponential backoff for reconnection
+                        delay = min(config.WEBSOCKET_RECONNECT_DELAY * (2 ** (self.reconnect_count - 1)), 60)
+                        logger.warning(f"WebSocket connection closed, reconnecting in {delay}s (attempt {self.reconnect_count})")
+                        await self.telegram_notifier.send_bot_status("reconnecting", f"Attempt {self.reconnect_count}/{self.max_reconnect_attempts}")
+                        await asyncio.sleep(delay)
                 except Exception as e:
                     if self.running:
-                        logger.error(f"WebSocket error: {e}, reconnecting...")
+                        self.reconnect_count += 1
+                        if self.reconnect_count > self.max_reconnect_attempts:
+                            logger.error("Max reconnection attempts exceeded due to errors, stopping bot")
+                            await self.telegram_notifier.send_error_alert("WebSocket", "Max reconnections exceeded", "high")
+                            self.running = False
+                            break
+                        
+                        # Exponential backoff for errors
+                        delay = min(config.WEBSOCKET_RECONNECT_DELAY * (2 ** (self.reconnect_count - 1)), 60)
+                        logger.error(f"WebSocket error: {e}, reconnecting in {delay}s (attempt {self.reconnect_count})")
                         await self.telegram_notifier.send_error_alert("WebSocket", str(e), "medium")
-                        await asyncio.sleep(config.WEBSOCKET_RECONNECT_DELAY)
+                        await asyncio.sleep(delay)
                         
         except Exception as e:
             logger.error(f"Failed to start WebSocket: {e}")
@@ -566,13 +588,16 @@ class ArbitrageBot:
                     # We're selling, so we receive the bid price
                     amount = (amount * price_data['bid']) * (1 - config.TRADING_FEE)
             
-            profit_percentage = amount - 1.0
+            # Calculate actual profit correctly
+            profit_absolute = amount - 1.0
+            profit_percentage = profit_absolute * 100  # Convert to percentage
             
-            if profit_percentage > 0:
+            if profit_absolute > 0:
                 return {
                     "triangle": triangle,
                     "symbols": symbols,
                     "profit_percentage": profit_percentage,
+                    "profit_absolute": profit_absolute,
                     "final_amount": amount
                 }
             
@@ -584,29 +609,45 @@ class ArbitrageBot:
     
     async def _execute_opportunity(self, triangle: List[str], opportunity: Dict):
         """Execute an arbitrage opportunity"""
-        try:
-            # Send opportunity notification
-            await self.telegram_notifier.send_opportunity_alert(triangle, opportunity["profit_percentage"])
-            
-            # Calculate trade amount based on configuration
-            trade_amount = min(
-                config.TRADE_AMOUNT_USDT,
-                config.TRADE_AMOUNT_USDT * config.MAX_TRADE_AMOUNT_PERCENTAGE
-            )
-            
-            # Execute the triangular arbitrage
-            result = await self.trade_executor.execute_triangle(triangle, trade_amount)
-            
-            # Send execution notification
-            await self.telegram_notifier.send_trade_execution(result)
-            
-            if result["success"]:
-                logger.info(f"Successfully executed arbitrage: {result}")
-            else:
-                logger.warning(f"Failed to execute arbitrage: {result['error']}")
+        # Use semaphore to prevent concurrent trades
+        async with self.trade_semaphore:
+            try:
+                # Send opportunity notification
+                await self.telegram_notifier.send_opportunity_alert(triangle, opportunity["profit_percentage"])
                 
-        except Exception as e:
-            logger.error(f"Error executing opportunity: {e}")
+                # Calculate trade amount based on actual balance
+                try:
+                    balance = await self.client.get_asset_balance(asset=triangle[0])
+                    available_balance = float(balance['free'])
+                    
+                    # Calculate maximum trade amount based on actual balance
+                    max_trade_amount = available_balance * config.MAX_TRADE_AMOUNT_PERCENTAGE
+                    trade_amount = min(config.TRADE_AMOUNT_USDT, max_trade_amount)
+                    
+                    # Ensure minimum viable trade amount
+                    if trade_amount < 10.0:  # Minimum 10 USDT equivalent
+                        logger.warning(f"Trade amount too small: {trade_amount:.2f}, skipping opportunity")
+                        return
+                        
+                except Exception as e:
+                    logger.error(f"Failed to get balance for {triangle[0]}: {e}")
+                    # Fallback to configured amount
+                    trade_amount = config.TRADE_AMOUNT_USDT
+                
+                # Execute the triangular arbitrage
+                result = await self.trade_executor.execute_triangle(triangle, trade_amount)
+                
+                # Send execution notification
+                await self.telegram_notifier.send_trade_execution(result)
+                
+                if result["success"]:
+                    logger.info(f"Successfully executed arbitrage: {result}")
+                else:
+                    logger.warning(f"Failed to execute arbitrage: {result['error']}")
+                    
+            except Exception as e:
+                logger.error(f"Error executing opportunity: {e}")
+                await self.telegram_notifier.send_error_alert("Trade Execution", str(e), "high")
     
     async def stop(self):
         """Stop the arbitrage bot"""
