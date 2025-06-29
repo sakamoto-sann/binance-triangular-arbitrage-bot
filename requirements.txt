@@ -1,0 +1,4 @@
+python-binance>=1.0.16
+websockets>=10.4
+asyncio
+decimal
