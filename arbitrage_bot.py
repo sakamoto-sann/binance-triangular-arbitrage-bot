@@ -7,12 +7,13 @@ Real-time WebSocket-based arbitrage detection and execution
 import asyncio
 import json
 import logging
+import logging.handlers
 import time
 from collections import defaultdict, deque
 from decimal import Decimal, ROUND_DOWN
 from typing import Dict, List, Optional, Tuple
 import websockets
-from binance.client import AsyncClient
+from binance import AsyncClient
 from binance.exceptions import BinanceAPIException
 import config
 
