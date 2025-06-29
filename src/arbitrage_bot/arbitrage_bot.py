@@ -15,8 +15,9 @@ from typing import Dict, List, Optional, Tuple
 import websockets
 from binance.client import AsyncClient
 from binance.exceptions import BinanceAPIException
-import config
-from telegram_notifier import TelegramNotifier
+from . import config
+from .telegram_notifier import TelegramNotifier
+from .__version__ import __version__, print_version
 
 # Configure logging
 logging.basicConfig(
@@ -414,10 +415,11 @@ class ArbitrageBot:
     async def start(self):
         """Start the arbitrage bot"""
         try:
-            logger.info("Starting Triangular Arbitrage Bot...")
+            logger.info(f"Starting Triangular Arbitrage Bot v{__version__}")
+            print_version()
             
             # Send startup notification
-            await self.telegram_notifier.send_bot_status("starting", f"Testnet: {config.TESTNET}")
+            await self.telegram_notifier.send_bot_status("starting", f"v{__version__} - Testnet: {config.TESTNET}")
             
             # Initialize Binance client
             self.client = await AsyncClient.create(

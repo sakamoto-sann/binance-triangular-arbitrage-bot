@@ -25,7 +25,7 @@ except ImportError:
     NetworkError = Exception
     TimedOut = Exception
 
-import config
+from . import config
 
 logger = logging.getLogger(__name__)
 

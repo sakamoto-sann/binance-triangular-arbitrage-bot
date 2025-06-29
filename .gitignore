@@ -1,8 +1,12 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -16,41 +20,86 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# Virtual Environment
-bot_env/
-venv/
-env/
-ENV/
+# PyInstaller
+*.manifest
+*.spec
 
-# Logs
-*.log
-logs/
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
 
-# Environment Variables (IMPORTANT: Keep API keys secret!)
+# Environments
 .env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 .bot_env
-config_local.py
 
-# IDE
+# IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Backup files
-*_backup_*
-*.tar.gz
+# Trading Bot Specific
+*.log
+*.log.*
+config_local.py
+.env.local
+.env.production
+bot_backups/
+arbitrage_bot.log*
 
-# Trading data
-trade_history/
-backups/
+# API Keys and Secrets
+*api_key*
+*secret*
+*token*
+.keys/
+secrets/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Security scan results
+bandit-report.json
+safety-report.json
+
+# Local configuration overrides
+config_override.py
+local_settings.py
+EOF < /dev/null
