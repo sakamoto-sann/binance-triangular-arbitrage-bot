@@ -469,10 +469,15 @@ class ArbitrageBot:
             # Create WebSocket stream URL
             streams = [f"{symbol}@bookTicker" for symbol in symbols_needed]
             if config.TESTNET:
-                base_url = "wss://testnet.binance.vision/ws"
+                # Binance spot testnet WebSocket - use combined stream format
+                base_url = "wss://testnet.binance.vision/stream"
+                # Testnet uses different format: stream?streams=symbol1@bookTicker/symbol2@bookTicker
+                combined_streams = "/".join(streams)
+                stream_url = f"{base_url}?streams={combined_streams}"
             else:
+                # Mainnet WebSocket
                 base_url = "wss://stream.binance.com:9443/ws"
-            stream_url = f"{base_url}/{'/'.join(streams)}"
+                stream_url = f"{base_url}/{'/'.join(streams)}"
             
             logger.info(f"Connecting to WebSocket with {len(streams)} streams")
             
