@@ -1,0 +1,30 @@
+Please implement a complete delta-neutral grid trading strategy for Binance based on the comprehensive requirements. The implementation must include all mandatory compliance classes with proper rate limiting, error handling, order validation, WebSocket management, account management, and futures compliance.
+
+Create a production-ready Python implementation with the following 10 required classes:
+
+1. BinanceAPIRateLimiter - with proper weight and order tracking
+2. BinanceErrorHandler - with all mandatory error handling
+3. BinanceOrderValidator - with symbol filter validation
+4. BinanceWebSocketManager - with connection management
+5. BinanceAccountManager - with account validation
+6. BinanceFuturesCompliance - with futures-specific rules
+7. CompliantDeltaNeutralManager - for core strategy execution
+8. CompliantGridTrader - for grid trading logic
+9. CompliantFundingFeeCollector - for fee collection
+10. CompliantPositionCompounder - for profit reinvestment
+
+Requirements:
+- Full Binance API compliance with rate limits
+- Comprehensive error handling for all error codes
+- Order validation with all symbol filters
+- WebSocket management with connection limits
+- Account status validation
+- Futures margin and leverage handling
+- Delta-neutral position management
+- Grid trading with compliance
+- Funding fee collection
+- Position compounding with limits
+
+Each class must include proper async/await patterns, complete error handling, rate limit compliance, input validation, logging, and emergency shutdown procedures.
+
+Provide the complete implementation as working Python code files.
