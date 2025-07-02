@@ -1,0 +1,122 @@
+version: "3.0.0"
+name: "Adaptive Grid Trading Bot"
+description: "Production-ready adaptive grid trading system with market regime detection"
+
+# Trading Configuration
+trading:
+  symbol: "BTCUSDT"
+  initial_balance: 10000.0
+  base_grid_interval: 1000.0
+  base_position_size: 0.001
+  target_btc_ratio: 0.3
+  commission_rate: 0.001
+  min_order_size: 0.0001
+  max_order_size: 0.01
+  loop_interval_seconds: 60
+
+# Strategy Parameters - OPTIMIZED FOR RISK-AGGRESSIVE TRADING
+strategy:
+  grid_count: 20  # Increased from 10 for more opportunities
+  volatility_lookback: 240  # 10 days for better trend detection
+  trend_lookback: 480      # 20 days for faster regime changes  
+  rebalance_frequency: 6   # hours - less frequent rebalancing
+  regime_detection_frequency: 1  # hours
+  max_portfolio_drawdown: 0.15  # Increased from 5% to 15%
+  circuit_breaker_volatility: 0.08  # Higher volatility tolerance
+  kelly_multiplier: 0.5  # Increased from 0.25 for higher position sizing
+  trend_threshold: 0.05  # Lowered from 0.1 for earlier signals
+  volatility_threshold: 0.025  # Slightly higher volatility threshold
+  min_data_points: 50  # Reduced from 100 to start trading sooner
+  market_confidence_threshold: 0.6  # Reduced from 0.8 for moderate confidence
+
+# Timeframes
+timeframes:
+  fast: "1h"
+  medium: "4h"
+  slow: "1d"
+  analysis: "1h"
+
+# Risk Management - ADAPTIVE AGGRESSION
+risk_management:
+  max_position_size: 0.12  # Increased from 1% to 12% for aggressive sizing
+  trailing_stop_pct: 0.04  # 4% trailing stop instead of fixed stop
+  profit_target_pct: 0.08  # 8% profit target (2x stop loss ratio)
+  max_daily_trades: 150  # Increased trade frequency
+  max_open_orders: 25  # More concurrent positions
+  inventory_target_min: 0.15
+  inventory_target_max: 0.85
+  risk_free_rate: 0.02
+  # Tiered Position Sizing
+  position_size_high_confidence: 0.08  # 8% for 80%+ confidence
+  position_size_medium_confidence: 0.05  # 5% for 60-80% confidence
+  position_size_low_confidence: 0.02  # 2% for 40-60% confidence
+  correlation_limit: 0.6  # Max 60% capital in correlated assets
+  transaction_cost_rate: 0.001  # Model transaction costs
+
+# Market Regime Detection - WITH 200-DAY EMA FILTER
+market_regime:
+  ma_fast: 20  # Faster moving average for quicker signals
+  ma_slow: 50  # Medium-term trend
+  ma_regime_filter: 200  # 200-day EMA for bear market protection
+  atr_period: 14
+  volatility_periods: [24, 168, 720]  # 1 day, 1 week, 1 month
+  breakout_threshold: 1.5  # Reduced ATR multiplier for earlier signals
+  sideways_threshold: 0.02  # Slightly wider range
+  # Market Regime Actions
+  bear_market_position_reduction: 0.5  # Reduce position size by 50% in bear markets
+  bull_market_position_multiplier: 1.5  # Increase position size by 50% in bull markets
+
+# Grid Engine - ATR-BASED DYNAMIC SPACING
+grid_engine:
+  # ATR-Based Dynamic Spacing
+  atr_spacing_multiplier_min: 1.0  # Minimum 1.0 * ATR spacing
+  atr_spacing_multiplier_max: 2.0  # Maximum 2.0 * ATR spacing
+  grid_levels_min: 15  # Minimum grid levels
+  grid_levels_max: 25  # Maximum grid levels
+  # Market Bias
+  bull_bias: 0.3  # 30% buy orders, 70% sell orders
+  bear_bias: 0.7  # 70% buy orders, 30% sell orders
+  sideways_bias: 0.5  # 50/50 split
+  # Advanced Features
+  adaptive_spacing: true
+  staggered_entry: true  # Place only 2-3 levels initially
+  initial_levels: 3  # Number of levels to place initially
+  spacing_smoothing: 0.2  # Increased smoothing
+  dynamic_adjustment_factor: 0.15  # Grid adjustment sensitivity
+
+# Performance Tracking
+performance:
+  calculation_frequency: 1  # hours
+  metrics_history: 720  # 30 days
+  benchmark_symbol: "BTCUSDT"
+  sharpe_lookback: 720  # 30 days for Sharpe calculation
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/grid_bot_v3.log"
+  max_file_size: 10485760  # 10MB
+  backup_count: 5
+
+# Database (for state persistence)
+database:
+  type: "sqlite"
+  path: "data/grid_bot_v3.db"
+  backup_frequency: 24  # hours
+
+# API Configuration
+api:
+  binance:
+    testnet: true
+    timeout: 30
+    retry_attempts: 3
+    retry_delay: 1
+  
+# Development Settings
+development:
+  paper_trading: true
+  debug_mode: false
+  backtest_mode: false
+  save_trade_history: true
+  performance_monitoring: true

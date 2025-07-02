@@ -1,0 +1,1 @@
+# Grid Trading Bot v3.0 - Core Package
