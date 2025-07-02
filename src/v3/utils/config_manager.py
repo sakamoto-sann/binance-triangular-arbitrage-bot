@@ -74,6 +74,15 @@ class MarketRegimeConfig:
     ma_regime_filter: int = 200
     bear_market_position_reduction: float = 0.5
     bull_market_position_multiplier: float = 1.5
+    # SUPERTREND ENHANCEMENT PARAMETERS
+    supertrend_enabled: bool = True
+    supertrend_period: int = 10
+    supertrend_multiplier: float = 3.0
+    adaptive_supertrend_enabled: bool = True
+    adaptive_supertrend_base_period: int = 10
+    adaptive_supertrend_base_multiplier: float = 2.5
+    supertrend_signal_weight: float = 0.4  # Weight of supertrend vs MA signals
+    signal_agreement_bonus: float = 0.1   # Confidence bonus when signals agree
 
 @dataclass
 class GridEngineConfig:

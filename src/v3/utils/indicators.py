@@ -654,3 +654,192 @@ class TechnicalIndicators:
                     support_levels.append(level)
         
         return np.array(support_levels), np.array(resistance_levels)
+    
+    @staticmethod
+    def supertrend(high: Union[pd.Series, np.ndarray], 
+                   low: Union[pd.Series, np.ndarray], 
+                   close: Union[pd.Series, np.ndarray], 
+                   period: int = 10, 
+                   multiplier: float = 3.0) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Supertrend indicator for trend detection.
+        
+        Args:
+            high: High prices.
+            low: Low prices.
+            close: Close prices.
+            period: ATR period for calculation.
+            multiplier: ATR multiplier for band calculation.
+            
+        Returns:
+            Tuple of (supertrend_values, trend_direction).
+            trend_direction: 1 for uptrend, -1 for downtrend.
+        """
+        # Convert to numpy arrays
+        if isinstance(high, pd.Series):
+            high = high.values
+        if isinstance(low, pd.Series):
+            low = low.values
+        if isinstance(close, pd.Series):
+            close = close.values
+        
+        # Calculate ATR
+        atr = TechnicalIndicators.atr(high, low, close, period)
+        
+        # Calculate basic upper and lower bands
+        hl2 = (high + low) / 2
+        upper_band = hl2 + (multiplier * atr)
+        lower_band = hl2 - (multiplier * atr)
+        
+        # Initialize arrays
+        supertrend = np.full_like(close, np.nan)
+        trend_direction = np.full_like(close, 1)  # 1 for up, -1 for down
+        
+        for i in range(1, len(close)):
+            # Skip if we don't have enough data
+            if np.isnan(upper_band[i]) or np.isnan(lower_band[i]):
+                continue
+                
+            # Calculate final upper and lower bands
+            if np.isnan(upper_band[i-1]):
+                final_upper_band = upper_band[i]
+            else:
+                final_upper_band = upper_band[i] if upper_band[i] < upper_band[i-1] or close[i-1] > upper_band[i-1] else upper_band[i-1]
+            
+            if np.isnan(lower_band[i-1]):
+                final_lower_band = lower_band[i]
+            else:
+                final_lower_band = lower_band[i] if lower_band[i] > lower_band[i-1] or close[i-1] < lower_band[i-1] else lower_band[i-1]
+            
+            # Determine trend
+            if i == 1:
+                # First calculation
+                if close[i] <= final_lower_band:
+                    supertrend[i] = final_upper_band
+                    trend_direction[i] = -1
+                else:
+                    supertrend[i] = final_lower_band
+                    trend_direction[i] = 1
+            else:
+                # Subsequent calculations
+                if supertrend[i-1] == lower_band[i-1] and close[i] <= final_lower_band:
+                    supertrend[i] = final_upper_band
+                    trend_direction[i] = -1
+                elif supertrend[i-1] == upper_band[i-1] and close[i] >= final_upper_band:
+                    supertrend[i] = final_lower_band
+                    trend_direction[i] = 1
+                elif supertrend[i-1] == lower_band[i-1] and close[i] > final_lower_band:
+                    supertrend[i] = final_lower_band
+                    trend_direction[i] = 1
+                elif supertrend[i-1] == upper_band[i-1] and close[i] < final_upper_band:
+                    supertrend[i] = final_upper_band
+                    trend_direction[i] = -1
+                else:
+                    supertrend[i] = supertrend[i-1]
+                    trend_direction[i] = trend_direction[i-1]
+        
+        return supertrend, trend_direction
+    
+    @staticmethod
+    def adaptive_supertrend(high: Union[pd.Series, np.ndarray], 
+                           low: Union[pd.Series, np.ndarray], 
+                           close: Union[pd.Series, np.ndarray], 
+                           volatility: Union[pd.Series, np.ndarray],
+                           base_period: int = 10, 
+                           base_multiplier: float = 3.0,
+                           vol_adjustment: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Adaptive Supertrend that adjusts parameters based on market volatility.
+        
+        Args:
+            high: High prices.
+            low: Low prices.
+            close: Close prices.
+            volatility: Volatility measure (e.g., ATR normalized).
+            base_period: Base ATR period.
+            base_multiplier: Base ATR multiplier.
+            vol_adjustment: Whether to adjust parameters based on volatility.
+            
+        Returns:
+            Tuple of (supertrend_values, trend_direction, adaptive_multiplier).
+        """
+        # Convert to numpy arrays
+        if isinstance(high, pd.Series):
+            high = high.values
+        if isinstance(low, pd.Series):
+            low = low.values
+        if isinstance(close, pd.Series):
+            close = close.values
+        if isinstance(volatility, pd.Series):
+            volatility = volatility.values
+        
+        # Calculate adaptive parameters
+        adaptive_multiplier = np.full_like(close, base_multiplier)
+        
+        if vol_adjustment:
+            # Normalize volatility to 0-1 range
+            vol_percentile = np.percentile(volatility[~np.isnan(volatility)], [10, 90])
+            vol_normalized = np.clip((volatility - vol_percentile[0]) / (vol_percentile[1] - vol_percentile[0]), 0, 1)
+            
+            # Adjust multiplier based on volatility
+            # High volatility -> higher multiplier (wider bands)
+            # Low volatility -> lower multiplier (tighter bands)
+            adaptive_multiplier = base_multiplier + (vol_normalized * 2.0)  # Range: base_multiplier to base_multiplier + 2
+        
+        # Calculate supertrend with adaptive parameters
+        atr = TechnicalIndicators.atr(high, low, close, base_period)
+        hl2 = (high + low) / 2
+        
+        # Initialize arrays
+        supertrend = np.full_like(close, np.nan)
+        trend_direction = np.full_like(close, 1)
+        
+        for i in range(1, len(close)):
+            if np.isnan(atr[i]) or np.isnan(adaptive_multiplier[i]):
+                continue
+                
+            # Calculate bands with adaptive multiplier
+            upper_band = hl2[i] + (adaptive_multiplier[i] * atr[i])
+            lower_band = hl2[i] - (adaptive_multiplier[i] * atr[i])
+            
+            # Calculate final bands
+            if i == 1:
+                final_upper_band = upper_band
+                final_lower_band = lower_band
+            else:
+                prev_upper = hl2[i-1] + (adaptive_multiplier[i-1] * atr[i-1])
+                prev_lower = hl2[i-1] - (adaptive_multiplier[i-1] * atr[i-1])
+                
+                final_upper_band = upper_band if upper_band < prev_upper or close[i-1] > prev_upper else prev_upper
+                final_lower_band = lower_band if lower_band > prev_lower or close[i-1] < prev_lower else prev_lower
+            
+            # Determine trend
+            if i == 1:
+                if close[i] <= final_lower_band:
+                    supertrend[i] = final_upper_band
+                    trend_direction[i] = -1
+                else:
+                    supertrend[i] = final_lower_band
+                    trend_direction[i] = 1
+            else:
+                prev_supertrend = supertrend[i-1]
+                prev_upper = hl2[i-1] + (adaptive_multiplier[i-1] * atr[i-1])
+                prev_lower = hl2[i-1] - (adaptive_multiplier[i-1] * atr[i-1])
+                
+                if prev_supertrend == prev_lower and close[i] <= final_lower_band:
+                    supertrend[i] = final_upper_band
+                    trend_direction[i] = -1
+                elif prev_supertrend == prev_upper and close[i] >= final_upper_band:
+                    supertrend[i] = final_lower_band
+                    trend_direction[i] = 1
+                elif prev_supertrend == prev_lower and close[i] > final_lower_band:
+                    supertrend[i] = final_lower_band
+                    trend_direction[i] = 1
+                elif prev_supertrend == prev_upper and close[i] < final_upper_band:
+                    supertrend[i] = final_upper_band
+                    trend_direction[i] = -1
+                else:
+                    supertrend[i] = prev_supertrend
+                    trend_direction[i] = trend_direction[i-1]
+        
+        return supertrend, trend_direction, adaptive_multiplier

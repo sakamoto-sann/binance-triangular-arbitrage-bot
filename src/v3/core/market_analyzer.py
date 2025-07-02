@@ -79,6 +79,16 @@ class MarketAnalyzer:
         self.breakout_threshold = config.market_regime.breakout_threshold
         self.sideways_threshold = config.market_regime.sideways_threshold
         
+        # Supertrend Enhancement Parameters
+        self.supertrend_enabled = config.market_regime.supertrend_enabled
+        self.supertrend_period = config.market_regime.supertrend_period
+        self.supertrend_multiplier = config.market_regime.supertrend_multiplier
+        self.adaptive_supertrend_enabled = config.market_regime.adaptive_supertrend_enabled
+        self.adaptive_supertrend_base_period = config.market_regime.adaptive_supertrend_base_period
+        self.adaptive_supertrend_base_multiplier = config.market_regime.adaptive_supertrend_base_multiplier
+        self.supertrend_signal_weight = config.market_regime.supertrend_signal_weight
+        self.signal_agreement_bonus = config.market_regime.signal_agreement_bonus
+        
         # Historical analysis data
         self.analysis_history: List[MarketAnalysis] = []
         self.regime_transitions: List[Tuple[datetime, MarketRegime, MarketRegime]] = []
@@ -144,7 +154,293 @@ class MarketAnalyzer:
     
     def _detect_market_regime(self, price_data: pd.DataFrame) -> Tuple[MarketRegime, float]:
         """
-        Detect current market regime.
+        Enhanced market regime detection using MA + Supertrend combination.
+        
+        Args:
+            price_data: DataFrame with OHLCV data.
+            
+        Returns:
+            Tuple of (regime, confidence).
+        """
+        try:
+            close_prices = price_data['close'].values
+            high_prices = price_data['high'].values
+            low_prices = price_data['low'].values
+            
+            # Calculate traditional indicators
+            ma_fast = self.indicators.ema(close_prices, self.ma_fast)
+            ma_slow = self.indicators.ema(close_prices, self.ma_slow)
+            
+            # Calculate Supertrend
+            atr = self.indicators.atr(high_prices, low_prices, close_prices, self.atr_period)
+            atr_normalized = atr / close_prices
+            
+            # Standard Supertrend (if enabled)
+            supertrend, st_direction = None, None
+            if self.supertrend_enabled:
+                supertrend, st_direction = self.indicators.supertrend(
+                    high_prices, low_prices, close_prices, 
+                    period=self.supertrend_period, 
+                    multiplier=self.supertrend_multiplier
+                )
+            
+            # Adaptive Supertrend (if enabled)
+            adaptive_st, adaptive_st_direction, adaptive_multiplier = None, None, None
+            if self.adaptive_supertrend_enabled:
+                adaptive_st, adaptive_st_direction, adaptive_multiplier = self.indicators.adaptive_supertrend(
+                    high_prices, low_prices, close_prices, atr_normalized, 
+                    base_period=self.adaptive_supertrend_base_period, 
+                    base_multiplier=self.adaptive_supertrend_base_multiplier, 
+                    vol_adjustment=True
+                )
+            
+            # Current values
+            current_price = close_prices[-1]
+            current_ma_fast = ma_fast[-1] if not np.isnan(ma_fast[-1]) else current_price
+            current_ma_slow = ma_slow[-1] if not np.isnan(ma_slow[-1]) else current_price
+            current_st_direction = st_direction[-1] if st_direction is not None and not np.isnan(st_direction[-1]) else 0
+            current_adaptive_st_direction = adaptive_st_direction[-1] if adaptive_st_direction is not None and not np.isnan(adaptive_st_direction[-1]) else 0
+            current_supertrend = supertrend[-1] if supertrend is not None and not np.isnan(supertrend[-1]) else current_price
+            current_adaptive_st = adaptive_st[-1] if adaptive_st is not None and not np.isnan(adaptive_st[-1]) else current_price
+            
+            # ENHANCED REGIME DETECTION WITH SUPERTREND
+            return self._enhanced_regime_detection(
+                current_price, current_ma_fast, current_ma_slow,
+                current_st_direction, current_adaptive_st_direction,
+                current_supertrend, current_adaptive_st,
+                high_prices, low_prices, close_prices, atr[-1] if not np.isnan(atr[-1]) else 0
+            )
+            
+        except Exception as e:
+            logger.error(f"Error detecting market regime: {e}")
+            return MarketRegime.UNKNOWN, 0.1
+
+    def _enhanced_regime_detection(self, current_price: float, ma_fast: float, ma_slow: float,
+                                 st_direction: float, adaptive_st_direction: float,
+                                 supertrend: float, adaptive_supertrend: float,
+                                 highs: np.ndarray, lows: np.ndarray, closes: np.ndarray,
+                                 current_atr: float) -> Tuple[MarketRegime, float]:
+        """
+        Enhanced regime detection combining MA and Supertrend signals.
+        
+        Args:
+            current_price: Current price level
+            ma_fast: Fast moving average value
+            ma_slow: Slow moving average value
+            st_direction: Supertrend direction (1 for up, -1 for down)
+            adaptive_st_direction: Adaptive supertrend direction
+            supertrend: Supertrend value
+            adaptive_supertrend: Adaptive supertrend value
+            highs: High price array
+            lows: Low price array
+            closes: Close price array
+            current_atr: Current ATR value
+            
+        Returns:
+            Tuple of (regime, confidence)
+        """
+        try:
+            # === SIGNAL ANALYSIS ===
+            
+            # MA Signal Analysis
+            ma_trend = 1 if ma_fast > ma_slow else -1
+            ma_separation = abs(ma_fast - ma_slow) / current_price
+            price_above_fast = current_price > ma_fast
+            price_above_slow = current_price > ma_slow
+            
+            # Supertrend Signal Analysis
+            st_bullish = st_direction == 1
+            adaptive_st_bullish = adaptive_st_direction == 1
+            price_above_st = current_price > supertrend
+            price_above_adaptive_st = current_price > adaptive_supertrend
+            
+            # Signal Alignment Analysis
+            ma_st_agreement = (ma_trend == 1 and st_bullish) or (ma_trend == -1 and not st_bullish)
+            adaptive_agreement = st_bullish == adaptive_st_bullish
+            full_alignment = ma_st_agreement and adaptive_agreement
+            
+            # Volatility Analysis
+            volatility_factor = min(current_atr / current_price * 100, 10) / 10
+            
+            # Price Range Analysis
+            lookback_period = min(50, len(closes))
+            recent_high = np.max(highs[-lookback_period:])
+            recent_low = np.min(lows[-lookback_period:])
+            price_range = (recent_high - recent_low) / current_price
+            
+            # === REGIME DETECTION LOGIC ===
+            
+            # Initialize
+            regime = MarketRegime.SIDEWAYS
+            confidence = 0.5
+            
+            # BULL MARKET CONDITIONS
+            if (ma_trend == 1 and st_bullish and adaptive_st_bullish and 
+                price_above_fast and price_above_slow and 
+                price_above_st and price_above_adaptive_st):
+                
+                regime = MarketRegime.BULL
+                confidence = 0.8
+                
+                # Boost confidence for strong alignment
+                if full_alignment:
+                    confidence += 0.1
+                
+                # Boost confidence for strong MA separation
+                confidence += min(ma_separation * 5, 0.1)
+                
+                # Adjust for volatility (lower vol = higher confidence in trends)
+                confidence *= (1 - volatility_factor * 0.15)
+            
+            # BEAR MARKET CONDITIONS
+            elif (ma_trend == -1 and not st_bullish and not adaptive_st_bullish and
+                  not price_above_fast and not price_above_slow and
+                  not price_above_st and not price_above_adaptive_st):
+                
+                regime = MarketRegime.BEAR
+                confidence = 0.8
+                
+                # Boost confidence for strong alignment
+                if full_alignment:
+                    confidence += 0.1
+                
+                # Boost confidence for strong MA separation
+                confidence += min(ma_separation * 5, 0.1)
+                
+                # Adjust for volatility
+                confidence *= (1 - volatility_factor * 0.15)
+            
+            # BREAKOUT CONDITIONS
+            elif volatility_factor > 0.6 and price_range > 0.05:
+                # Check for potential breakouts
+                distance_from_st = abs(current_price - supertrend) / current_price
+                distance_from_adaptive_st = abs(current_price - adaptive_supertrend) / current_price
+                
+                if (distance_from_st < 0.02 or distance_from_adaptive_st < 0.02):
+                    regime = MarketRegime.BREAKOUT
+                    confidence = 0.6 + volatility_factor * 0.3
+                else:
+                    # Strong trend with disagreement = potential reversal/breakout
+                    regime = MarketRegime.BREAKOUT
+                    confidence = 0.5 + volatility_factor * 0.2
+            
+            # SIDEWAYS CONDITIONS
+            elif price_range <= self.sideways_threshold or not ma_st_agreement:
+                regime = MarketRegime.SIDEWAYS
+                
+                # Higher confidence for clear sideways conditions
+                if price_range <= self.sideways_threshold:
+                    confidence = 0.7 + (self.sideways_threshold - price_range) * 10
+                else:
+                    # Signal disagreement suggests sideways/consolidation
+                    confidence = 0.6 - abs(ma_separation) * 2
+            
+            # MIXED/TRANSITIONAL CONDITIONS  
+            else:
+                # Determine dominant signal
+                bullish_signals = sum([
+                    ma_trend == 1,
+                    st_bullish,
+                    adaptive_st_bullish,
+                    price_above_fast,
+                    price_above_slow,
+                    price_above_st,
+                    price_above_adaptive_st
+                ])
+                
+                if bullish_signals >= 5:
+                    regime = MarketRegime.BULL
+                    confidence = 0.4 + (bullish_signals - 4) * 0.1
+                elif bullish_signals <= 2:
+                    regime = MarketRegime.BEAR
+                    confidence = 0.4 + (3 - bullish_signals) * 0.1
+                else:
+                    regime = MarketRegime.SIDEWAYS
+                    confidence = 0.3
+            
+            # === CONFIDENCE ADJUSTMENTS ===
+            
+            # Penalize low volatility for breakout detection
+            if regime == MarketRegime.BREAKOUT and volatility_factor < 0.3:
+                confidence *= 0.7
+            
+            # Boost confidence for signal alignment
+            if full_alignment and regime in [MarketRegime.BULL, MarketRegime.BEAR]:
+                confidence += self.signal_agreement_bonus
+            
+            # Penalize confidence for signal disagreement  
+            if not ma_st_agreement and regime in [MarketRegime.BULL, MarketRegime.BEAR]:
+                confidence *= (1 - self.supertrend_signal_weight)
+            
+            # If Supertrend is disabled, fall back to MA-only detection
+            if not self.supertrend_enabled and not self.adaptive_supertrend_enabled:
+                return self._fallback_ma_only_detection(
+                    current_price, ma_fast, ma_slow, highs, lows, closes, current_atr
+                )
+            
+            # Final confidence bounds
+            confidence = max(0.1, min(0.95, confidence))
+            
+            return regime, confidence
+            
+        except Exception as e:
+            logger.error(f"Error in enhanced regime detection: {e}")
+            return MarketRegime.UNKNOWN, 0.1
+
+    def _fallback_ma_only_detection(self, current_price: float, ma_fast: float, ma_slow: float,
+                                   highs: np.ndarray, lows: np.ndarray, closes: np.ndarray,
+                                   current_atr: float) -> Tuple[MarketRegime, float]:
+        """
+        Fallback to MA-only regime detection when Supertrend is disabled.
+        
+        Args:
+            current_price: Current price level
+            ma_fast: Fast moving average value
+            ma_slow: Slow moving average value
+            highs: High price array
+            lows: Low price array
+            closes: Close price array
+            current_atr: Current ATR value
+            
+        Returns:
+            Tuple of (regime, confidence)
+        """
+        try:
+            # MA Signal Analysis
+            ma_trend = 1 if ma_fast > ma_slow else -1
+            ma_separation = abs(ma_fast - ma_slow) / current_price
+            price_above_fast = current_price > ma_fast
+            price_above_slow = current_price > ma_slow
+            
+            # Price Range Analysis
+            lookback_period = min(50, len(closes))
+            recent_high = np.max(highs[-lookback_period:])
+            recent_low = np.min(lows[-lookback_period:])
+            price_range = (recent_high - recent_low) / current_price
+            
+            # Simple MA-based regime detection
+            if ma_trend > 0 and price_above_fast and price_above_slow:
+                regime = MarketRegime.BULL
+                confidence = min(0.85, 0.5 + ma_separation * 2)
+            elif ma_trend < 0 and not price_above_fast and not price_above_slow:
+                regime = MarketRegime.BEAR
+                confidence = min(0.85, 0.5 + ma_separation * 2)
+            elif price_range <= self.sideways_threshold:
+                regime = MarketRegime.SIDEWAYS
+                confidence = min(0.9, 0.5 + (self.sideways_threshold - price_range) * 2)
+            else:
+                regime = MarketRegime.SIDEWAYS
+                confidence = 0.4
+            
+            return regime, confidence
+            
+        except Exception as e:
+            logger.error(f"Error in fallback MA-only detection: {e}")
+            return MarketRegime.UNKNOWN, 0.1
+
+    def _original_detect_market_regime(self, price_data: pd.DataFrame) -> Tuple[MarketRegime, float]:
+        """
+        Original MA-only market regime detection (for comparison/fallback).
         
         Args:
             price_data: DataFrame with OHLCV data.
