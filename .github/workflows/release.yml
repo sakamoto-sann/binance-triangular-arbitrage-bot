@@ -49,22 +49,15 @@ jobs:
         echo "$CHANGELOG" >> CHANGELOG.md
 
     - name: Create GitHub Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ github.ref }}
-        release_name: Release ${{ steps.changelog.outputs.version }}
+        name: Release ${{ steps.changelog.outputs.version }}
         body_path: CHANGELOG.md
+        files: |
+          dist/*.tar.gz
+          dist/*.whl
         draft: false
         prerelease: false
-
-    - name: Upload Release Assets
-      uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/triangular-arbitrage-bot-${{ steps.changelog.outputs.version }}.tar.gz
-        asset_name: triangular-arbitrage-bot-${{ steps.changelog.outputs.version }}.tar.gz
-        asset_content_type: application/gzip

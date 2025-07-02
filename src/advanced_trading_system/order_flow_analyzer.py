@@ -606,7 +606,7 @@ class OrderFlowAnalyzer:
             
             # Determine optimal strategy
             strategy_type = self._select_execution_strategy(
-                order_size_usd, urgency, flow_metrics, order_book
+                order_size_usd, urgency, flow_metrics, order_book, side
             )
             
             # Calculate optimal parameters for the selected strategy
@@ -621,7 +621,7 @@ class OrderFlowAnalyzer:
             return self._get_default_execution_strategy(symbol, side, quantity)
 
     def _select_execution_strategy(self, order_size_usd: float, urgency: str, 
-                                 flow_metrics: OrderFlowMetrics, order_book: OrderBookSnapshot) -> str:
+                                 flow_metrics: OrderFlowMetrics, order_book: OrderBookSnapshot, side: str = 'buy') -> str:
         """Select the optimal execution strategy"""
         try:
             # Strategy selection logic
