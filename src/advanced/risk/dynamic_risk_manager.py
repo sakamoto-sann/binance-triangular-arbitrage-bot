@@ -137,6 +137,12 @@ class DynamicRiskManager:
         self.emergency_stop_triggered = False
         self.circuit_breaker_active = False
         
+        # Portfolio-Level Drawdown Control (Feature 1) - Claude's Conservative Parameters
+        self.portfolio_high_water_mark = total_capital
+        self.drawdown_halt_triggered = False
+        self.drawdown_halt_threshold = 0.20  # 20% drawdown threshold (conservative)
+        self.recovery_threshold = 0.10  # Resume when drawdown < 10% (conservative)
+        
         # Settings
         self.lookback_periods = 252  # ~1 year of daily data
         self.var_confidence_levels = [0.95, 0.99]
@@ -650,6 +656,98 @@ class DynamicRiskManager:
         except Exception as e:
             self.logger.error(f"Error checking emergency conditions: {e}")
             return True  # Conservative default
+    
+    def update_portfolio_value(self, current_portfolio_value: float) -> bool:
+        """
+        Update portfolio value and check drawdown control.
+        
+        Args:
+            current_portfolio_value: Current total portfolio value
+            
+        Returns:
+            True if trading should continue, False if halted due to drawdown
+        """
+        try:
+            # Update high water mark
+            if current_portfolio_value > self.portfolio_high_water_mark:
+                self.portfolio_high_water_mark = current_portfolio_value
+                self.logger.info(f"New portfolio high water mark: ${self.portfolio_high_water_mark:,.2f}")
+            
+            # Calculate current drawdown
+            current_drawdown = (self.portfolio_high_water_mark - current_portfolio_value) / self.portfolio_high_water_mark
+            
+            # Check if we should halt trading due to drawdown
+            if not self.drawdown_halt_triggered and current_drawdown >= self.drawdown_halt_threshold:
+                self.drawdown_halt_triggered = True
+                self.logger.critical(f"DRAWDOWN HALT TRIGGERED: {current_drawdown:.2%} exceeds threshold {self.drawdown_halt_threshold:.2%}")
+                self.logger.critical(f"Portfolio value: ${current_portfolio_value:,.2f}, High water mark: ${self.portfolio_high_water_mark:,.2f}")
+                
+                # Generate emergency alert
+                alert = RiskAlert(
+                    alert_type=AlertType.DRAWDOWN_WARNING,
+                    risk_level=RiskLevel.EMERGENCY,
+                    message=f"Portfolio drawdown halt triggered: {current_drawdown:.2%}",
+                    affected_strategies=["ALL"],
+                    current_value=current_drawdown,
+                    threshold_value=self.drawdown_halt_threshold,
+                    recommendation="Halt all trading until drawdown recovers"
+                )
+                self.active_alerts.append(alert)
+                return False
+            
+            # Check if we should resume trading after recovery
+            elif self.drawdown_halt_triggered and current_drawdown <= self.recovery_threshold:
+                self.drawdown_halt_triggered = False
+                self.logger.info(f"DRAWDOWN RECOVERY: {current_drawdown:.2%} below recovery threshold {self.recovery_threshold:.2%}")
+                self.logger.info("Trading resumed after drawdown recovery")
+                
+                # Acknowledge recovery alert
+                for alert in self.active_alerts:
+                    if alert.alert_type == AlertType.DRAWDOWN_WARNING and not alert.acknowledged:
+                        alert.acknowledged = True
+                
+                return True
+            
+            # Return current trading status
+            return not self.drawdown_halt_triggered
+            
+        except Exception as e:
+            self.logger.error(f"Error updating portfolio value: {e}")
+            return False  # Conservative: halt trading on error
+    
+    def is_trading_halted(self) -> bool:
+        """
+        Check if trading is currently halted due to risk controls.
+        
+        Returns:
+            True if trading is halted, False otherwise
+        """
+        return self.drawdown_halt_triggered or self.emergency_stop_triggered or self.circuit_breaker_active
+    
+    def get_drawdown_status(self) -> Dict[str, Any]:
+        """
+        Get current drawdown control status.
+        
+        Returns:
+            Dictionary with drawdown status information
+        """
+        try:
+            current_nav = self.nav_history[-1] if self.nav_history else self.total_capital
+            current_drawdown = (self.portfolio_high_water_mark - current_nav) / self.portfolio_high_water_mark
+            
+            return {
+                'high_water_mark': self.portfolio_high_water_mark,
+                'current_portfolio_value': current_nav,
+                'current_drawdown': current_drawdown,
+                'drawdown_threshold': self.drawdown_halt_threshold,
+                'recovery_threshold': self.recovery_threshold,
+                'trading_halted': self.drawdown_halt_triggered,
+                'days_since_peak': len([nav for nav in self.nav_history[::-1] if nav < self.portfolio_high_water_mark]),
+                'status': 'HALTED' if self.drawdown_halt_triggered else 'ACTIVE'
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting drawdown status: {e}")
+            return {'status': 'ERROR', 'error': str(e)}
     
     async def _generate_risk_alert(self, violation: Dict[str, Any]):
         """Generate and store risk alert."""

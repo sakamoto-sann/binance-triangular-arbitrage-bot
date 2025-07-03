@@ -400,6 +400,7 @@ class SmartOrderManager:
     async def _optimize_order_placement(self, order_request: OrderRequest) -> OrderRequest:
         """
         Optimize order placement based on market conditions.
+        Feature 3: Smart Order Execution with gradual scaling.
         
         Args:
             order_request: Original order request.
@@ -414,24 +415,35 @@ class SmartOrderManager:
             current_price = self.current_prices.get(order_request.symbol, order_request.price)
             
             if order_request.order_type == OrderType.LIMIT and current_price:
-                # Optimize limit order price based on execution strategy
+                # Smart order execution optimization
                 if order_request.execution_strategy == ExecutionStrategy.AGGRESSIVE:
                     # Place closer to market for faster execution
                     if order_request.side == 'buy':
-                        optimized.price = current_price * 1.001  # 0.1% above market
+                        optimized.price = current_price * 1.0008  # 0.08% above market (tighter)
                     else:
-                        optimized.price = current_price * 0.999  # 0.1% below market
+                        optimized.price = current_price * 0.9992  # 0.08% below market
                         
                 elif order_request.execution_strategy == ExecutionStrategy.CONSERVATIVE:
                     # Place further from market for better price
                     if order_request.side == 'buy':
-                        optimized.price = current_price * 0.995  # 0.5% below market
+                        optimized.price = current_price * 0.997  # 0.3% below market
                     else:
-                        optimized.price = current_price * 1.005  # 0.5% above market
+                        optimized.price = current_price * 1.003  # 0.3% above market
+                        
+                elif order_request.execution_strategy == ExecutionStrategy.PATIENT:
+                    # Claude's Conservative Execution - minimal price deviation
+                    if order_request.side == 'buy':
+                        optimized.price = current_price * 1.0000  # At market price (conservative)
+                    else:
+                        optimized.price = current_price * 1.0000  # At market price (conservative)
+                
+                # Apply intelligent price rounding to common price levels
+                if optimized.price:
+                    optimized.price = self._round_to_tick_size(optimized.price, order_request.symbol)
                 
                 # Ensure price is reasonable
                 if optimized.price and current_price:
-                    max_deviation = 0.02  # 2% maximum deviation
+                    max_deviation = 0.015  # 1.5% maximum deviation (tighter control)
                     if abs(optimized.price - current_price) / current_price > max_deviation:
                         # Revert to original price if optimization goes too far
                         optimized.price = order_request.price
@@ -620,6 +632,150 @@ class SmartOrderManager:
         except Exception as e:
             logger.error(f"Error getting order status: {e}")
             return None
+    
+    async def place_scaled_order(self, order_request: OrderRequest, num_slices: int = 3) -> List[Tuple[bool, str, Optional[str]]]:
+        """
+        Place a large order using smart scaling to minimize slippage.
+        Feature 3: Smart Order Execution implementation.
+        
+        Args:
+            order_request: Original order request to scale
+            num_slices: Number of slices to split the order into
+            
+        Returns:
+            List of (success, message, order_id) tuples for each slice
+        """
+        try:
+            results = []
+            slice_size = order_request.quantity / num_slices
+            current_price = self.current_prices.get(order_request.symbol, order_request.price)
+            
+            if not current_price:
+                # Fallback to regular order if no current price
+                result = await self.place_order(order_request)
+                return [result]
+            
+            # Create scaled order slices
+            for i in range(num_slices):
+                # Calculate slice-specific price adjustment
+                if order_request.side == 'buy':
+                    # For buy orders, place progressively lower prices
+                    price_adjustment = 1.0 - (i * 0.0005)  # 0.05% steps lower
+                else:
+                    # For sell orders, place progressively higher prices
+                    price_adjustment = 1.0 + (i * 0.0005)  # 0.05% steps higher
+                
+                slice_price = current_price * price_adjustment
+                
+                # Create slice order request
+                slice_request = OrderRequest(
+                    symbol=order_request.symbol,
+                    side=order_request.side,
+                    order_type=order_request.order_type,
+                    quantity=slice_size,
+                    price=slice_price,
+                    execution_strategy=ExecutionStrategy.PATIENT,  # Use patient for slices
+                    grid_level_id=order_request.grid_level_id,
+                    priority=order_request.priority + i,  # Lower priority for later slices
+                    max_slippage_pct=order_request.max_slippage_pct
+                )
+                
+                # Place slice with delay between orders
+                if i > 0:
+                    await asyncio.sleep(0.2)  # 200ms delay between slices
+                
+                result = await self.place_order(slice_request)
+                results.append(result)
+                
+                # If a slice fails, consider stopping or adjusting strategy
+                if not result[0]:
+                    logger.warning(f"Slice {i+1} failed: {result[1]}")
+            
+            logger.info(f"Scaled order placement completed: {len([r for r in results if r[0]])} of {num_slices} slices succeeded")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error placing scaled order: {e}")
+            return [(False, f"Error in scaled order placement: {e}", None)]
+    
+    def _round_to_tick_size(self, price: float, symbol: str) -> float:
+        """
+        Round price to appropriate tick size for the symbol.
+        
+        Args:
+            price: Raw price to round
+            symbol: Trading symbol
+            
+        Returns:
+            Rounded price
+        """
+        try:
+            # Symbol-specific tick sizes (simplified - in production, get from exchange info)
+            tick_sizes = {
+                'BTCUSDT': 0.01,    # $0.01
+                'ETHUSDT': 0.01,    # $0.01
+                'BNBUSDT': 0.001,   # $0.001
+                'ADAUSDT': 0.00001, # $0.00001
+                'SOLUSDT': 0.001,   # $0.001
+            }
+            
+            tick_size = tick_sizes.get(symbol, 0.00001)  # Default to 5 decimal places
+            
+            # Round to nearest tick
+            rounded_price = round(price / tick_size) * tick_size
+            
+            return round(rounded_price, 8)  # Ensure reasonable precision
+            
+        except Exception as e:
+            logger.error(f"Error rounding to tick size: {e}")
+            return price
+    
+    async def place_order_with_timeout(self, order_request: OrderRequest, timeout_seconds: int = 30) -> Tuple[bool, str, Optional[str]]:
+        """
+        Place order with automatic timeout and cancellation.
+        Part of Feature 3: Smart Order Execution.
+        
+        Args:
+            order_request: Order request
+            timeout_seconds: Timeout in seconds
+            
+        Returns:
+            Tuple of (success, message, order_id)
+        """
+        try:
+            # Place the order
+            success, message, order_id = await self.place_order(order_request)
+            
+            if not success or not order_id:
+                return success, message, order_id
+            
+            # Monitor order for timeout
+            start_time = time.time()
+            
+            while time.time() - start_time < timeout_seconds:
+                # Check order status
+                order_data = self.get_order_status(order_id)
+                if order_data and order_data.status in ['filled', 'cancelled', 'rejected']:
+                    if order_data.status == 'filled':
+                        return True, f"Order filled within timeout: {order_id}", order_id
+                    else:
+                        return False, f"Order {order_data.status}: {order_id}", order_id
+                
+                # Wait before next check
+                await asyncio.sleep(1.0)
+            
+            # Timeout reached - cancel the order
+            logger.warning(f"Order {order_id} timed out after {timeout_seconds}s, attempting cancellation")
+            cancel_success, cancel_message = await self.cancel_order(order_id)
+            
+            if cancel_success:
+                return False, f"Order cancelled due to timeout: {order_id}", order_id
+            else:
+                return False, f"Order timeout and cancellation failed: {cancel_message}", order_id
+                
+        except Exception as e:
+            logger.error(f"Error in order with timeout: {e}")
+            return False, f"Error placing order with timeout: {e}", None
     
     def get_active_orders(self, symbol: Optional[str] = None) -> List[OrderData]:
         """
