@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 
 # Import components
 sys.path.insert(0, 'advanced')
@@ -172,8 +172,9 @@ class ATRSupertrendBacktest:
                 confidence_multiplier = analysis.enhanced_confidence if analysis else 1.0
                 position_size = min(0.03, 0.015 * confidence_multiplier)  # Max 3%, min 1.5%
                 
-                self._execute_grid_trades(current_price, grid_spacing, balance, spot_positions, position_size)
-                total_trades += 1
+                # FIXED: Return updated balance and positions
+                balance, trades_executed = self._execute_grid_trades(current_price, grid_spacing, balance, spot_positions, position_size)
+                total_trades += trades_executed
             
             # Calculate final results
             spot_pnl = sum(pos_size * (price_data['close'].iloc[-1] - entry_price) 
@@ -196,10 +197,11 @@ class ATRSupertrendBacktest:
             return {'strategy': 'atr_supertrend', 'error': str(e)}
     
     def _execute_grid_trades(self, current_price: float, grid_spacing: float, 
-                           balance: float, spot_positions: dict, position_size_pct: float):
-        """Execute grid trading logic."""
+                           balance: float, spot_positions: dict, position_size_pct: float) -> Tuple[float, int]:
+        """Execute grid trading logic and return updated balance and trade count."""
         try:
             num_levels = 3
+            trades_executed = 0
             
             for i in range(-num_levels, num_levels + 1):
                 if i == 0:
@@ -208,20 +210,28 @@ class ATRSupertrendBacktest:
                 grid_price = current_price * (1 + i * grid_spacing)
                 
                 if i < 0:  # Buy levels
-                    if abs(current_price - grid_price) / current_price <= 0.005:
+                    # Trigger when price is close to grid level (use grid spacing as threshold)
+                    trigger_threshold = max(grid_spacing * 0.5, 0.001)  # At least 0.1%
+                    if abs(current_price - grid_price) / current_price <= trigger_threshold:
                         order_size = balance * position_size_pct / grid_price
                         if order_size * grid_price <= balance:
                             balance -= order_size * grid_price
                             spot_positions[grid_price] = spot_positions.get(grid_price, 0) + order_size
+                            trades_executed += 1
                 
                 else:  # Sell levels
-                    if grid_price in spot_positions and abs(current_price - grid_price) / current_price <= 0.005:
+                    trigger_threshold = max(grid_spacing * 0.5, 0.001)  # At least 0.1%
+                    if grid_price in spot_positions and abs(current_price - grid_price) / current_price <= trigger_threshold:
                         sell_quantity = spot_positions[grid_price]
                         balance += sell_quantity * grid_price
                         del spot_positions[grid_price]
+                        trades_executed += 1
+            
+            return balance, trades_executed
             
         except Exception as e:
             logger.error(f"Grid trade execution error: {e}")
+            return balance, 0
     
     def compare_strategies(self, atr_only: Dict, integrated: Dict) -> Dict[str, Any]:
         """Compare strategy performance."""
