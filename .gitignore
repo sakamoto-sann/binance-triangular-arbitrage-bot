@@ -1,12 +1,10 @@
-# Byte-compiled / optimized / DLL files
+# Combined .gitignore for Triangular Arbitrage + Institutional Trading Bot
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -42,7 +40,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
-# Environments
+# Virtual environments
 .env
 .venv
 env/
@@ -52,14 +50,38 @@ env.bak/
 venv.bak/
 .bot_env
 
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# Logs
+*.log
+*.log.*
+logs/
+institutional_trading.log
+arbitrage_bot.log*
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Data files
+*.csv
+*.json
+data/
+historical_data/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# OS generated files
 .DS_Store
 .DS_Store?
 ._*
@@ -69,13 +91,8 @@ ehthumbs.db
 Thumbs.db
 
 # Trading Bot Specific
-*.log
-*.log.*
 config_local.py
-.env.local
-.env.production
 bot_backups/
-arbitrage_bot.log*
 
 # API Keys and Secrets
 *api_key*
@@ -83,17 +100,19 @@ arbitrage_bot.log*
 *token*
 .keys/
 secrets/
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-*.temp
+config/api_keys.json
+config/secrets.json
 
 # Database files
 *.db
 *.sqlite
 *.sqlite3
+
+# Trading specific
+backtest_results/
+performance_reports/
+*.pickle
+*.pkl
 
 # Security scan results
 bandit-report.json
@@ -102,4 +121,3 @@ safety-report.json
 # Local configuration overrides
 config_override.py
 local_settings.py
-EOF < /dev/null
