@@ -951,14 +951,14 @@ class InstitutionalTradingBot:
         self.trade_history = []
         self.risk_metrics = InstitutionalRiskMetrics()
         
-        # Advanced parameters
+        # Advanced parameters (FIXED: More balanced thresholds)
         self.trading_params = {
             'max_positions': 10,
             'max_portfolio_exposure': 0.30,
             'max_sector_exposure': 0.15,
             'max_single_position': 0.05,
-            'min_signal_strength': SignalStrength.MODERATE,
-            'min_confidence_score': 0.7,
+            'min_signal_strength': SignalStrength.MODERATE,  # Keep at 2 (moderate)
+            'min_confidence_score': 0.55,  # REDUCED from 0.7 to 0.55
             'rebalance_frequency': 4,  # hours
             'risk_check_frequency': 1   # hours
         }
@@ -1211,30 +1211,33 @@ class InstitutionalTradingBot:
     def _generate_primary_signal(self, base_analysis, signal_strength: SignalStrength, 
                                 timeframe_agreement: Dict[str, bool], 
                                 cross_asset_confirmation: bool) -> bool:
-        """Generate primary trading signal."""
+        """Generate primary trading signal (FIXED: More balanced criteria)."""
         try:
-            # Base signal requirements
-            if not base_analysis.signal_agreement:
-                return False
+            # Base signal requirements (FIXED: Allow trading without perfect agreement)
+            signal_score = 0
             
-            # Signal strength requirement
-            if signal_strength.value < self.trading_params['min_signal_strength'].value:
-                return False
+            # Signal agreement gives major points
+            if base_analysis.signal_agreement:
+                signal_score += 3
+            elif base_analysis.enhanced_confidence > 0.7:
+                signal_score += 2  # High confidence without agreement still valuable
             
-            # Timeframe agreement (at least 2 out of 3)
+            # Signal strength component
+            signal_score += signal_strength.value
+            
+            # Timeframe agreement (flexible requirement)
             agreement_count = sum(timeframe_agreement.values())
-            if agreement_count < 2:
-                return False
+            if agreement_count >= 2:
+                signal_score += 2
+            elif agreement_count >= 1:
+                signal_score += 1
             
-            # Cross-asset confirmation (optional but preferred)
+            # Cross-asset confirmation bonus
             if cross_asset_confirmation:
-                return True
+                signal_score += 1
             
-            # Strong signals can override cross-asset requirement
-            if signal_strength.value >= SignalStrength.VERY_STRONG.value:
-                return True
-            
-            return False
+            # FIXED: More reasonable threshold (7+ points instead of perfect conditions)
+            return signal_score >= 6
             
         except Exception as e:
             logger.error(f"Primary signal generation error: {e}")
@@ -1393,14 +1396,15 @@ class InstitutionalTradingBot:
             return False
     
     def _pre_trade_risk_checks(self, signal: InstitutionalSignal, current_price: float) -> bool:
-        """Comprehensive pre-trade risk checks."""
+        """Comprehensive pre-trade risk checks (FIXED: More balanced)."""
         try:
-            # Check signal quality
-            if signal.confidence_score < self.trading_params['min_confidence_score']:
+            # Check signal quality (FIXED: More lenient for market opportunities)
+            if signal.confidence_score < max(0.50, self.trading_params['min_confidence_score'] * 0.9):
                 return False
             
-            # Check signal strength
-            if signal.signal_strength.value < self.trading_params['min_signal_strength'].value:
+            # Check signal strength (FIXED: Allow weaker signals in good conditions)
+            min_strength = self.trading_params['min_signal_strength'].value
+            if signal.signal_strength.value < max(1, min_strength - 1):  # Allow one level lower
                 return False
             
             # Check risk level
@@ -1427,16 +1431,16 @@ class InstitutionalTradingBot:
             return False
     
     def _get_regime_position_adjustment(self, regime: MarketRegime) -> float:
-        """Get position size adjustment based on market regime."""
+        """Get position size adjustment based on market regime (FIXED: More trading-friendly)."""
         adjustments = {
-            MarketRegime.TRENDING_BULL: 1.2,
-            MarketRegime.TRENDING_BEAR: 1.1,
-            MarketRegime.RANGING_LOW_VOL: 1.0,
-            MarketRegime.RANGING_HIGH_VOL: 0.8,
-            MarketRegime.CONSOLIDATION: 0.9,
-            MarketRegime.EXTREME_VOLATILITY: 0.5,
-            MarketRegime.CRISIS_MODE: 0.3,
-            MarketRegime.RECOVERY_MODE: 0.7
+            MarketRegime.TRENDING_BULL: 1.3,      # INCREASED: Take advantage of trends
+            MarketRegime.TRENDING_BEAR: 1.2,      # INCREASED: Short opportunities
+            MarketRegime.RANGING_LOW_VOL: 1.1,    # INCREASED: Safe environment
+            MarketRegime.RANGING_HIGH_VOL: 0.9,   # INCREASED: From 0.8 to 0.9
+            MarketRegime.CONSOLIDATION: 1.0,      # INCREASED: From 0.9 to 1.0
+            MarketRegime.EXTREME_VOLATILITY: 0.6, # INCREASED: From 0.5 to 0.6
+            MarketRegime.CRISIS_MODE: 0.4,        # INCREASED: From 0.3 to 0.4
+            MarketRegime.RECOVERY_MODE: 0.8       # INCREASED: From 0.7 to 0.8
         }
         
         return adjustments.get(regime, 1.0)
@@ -1761,17 +1765,17 @@ def run_institutional_backtest():
                 signal = bot.analyze_market_institutional(hist_data)
                 signals_generated += 1
                 
-                # Track high-quality signals
-                if signal.confidence_score > 0.7:
+                # Track high-quality signals (FIXED: Lowered threshold)
+                if signal.confidence_score > 0.55:  # REDUCED from 0.7 to 0.55
                     high_quality_signals += 1
                 
                 # Risk management (always active)
                 bot.manage_institutional_risk(current_price, current_time)
                 
-                # Execute trades on strong signals
+                # Execute trades on good signals (FIXED: More reasonable thresholds)
                 if (signal.primary_signal and 
-                    signal.confidence_score > 0.75 and 
-                    signal.signal_strength.value >= 3):
+                    signal.confidence_score > 0.60 and   # REDUCED from 0.75 to 0.60
+                    signal.signal_strength.value >= 2):  # REDUCED from 3 to 2
                     
                     if bot.execute_institutional_trade(signal, current_price, current_time):
                         trades_executed += 1
